@@ -19,4 +19,7 @@ const (
 
 	DEBUG2 = `sum(irate(response_total{classification="success",  direction="inbound"}[30s])) by (app) / sum(irate(response_total{ direction="inbound"}[30s])) by (app)`
 	DEBUG3 = `histogram_quantile(0.5, sum(irate(response_latency_ms_bucket{direction="inbound"}[30s])) by (le,app))`
+
+	IncomingIdentityQuery = `count(response_total{deployment!="", direction="inbound"}) by (deployment, app, version, client_id, namespace, no_tls_reason)`
+	OutgoingIdentityQuery = `count(response_total{deployment!="", direction="outbound"}) by (deployment, dst_deployment, server_id, namespace, dst_namespace, app, version)`
 )

@@ -89,7 +89,8 @@ func NewServer(
 	server.router.GET("/api/version", handler.handleAPIVersion)
 
 	server.router.GET("/api/v0/cluster", handler.handleClusterInfo)
-	server.router.GET("/api/v0/app/:app", handler.handleAppStats)
+	//server.router.GET("/api/v0/app/:app", handler.handleAppStats)
+	server.router.GET("/api/v0/namespace/:namespace", handler.handleAPIEdges)
 
 	// grafana proxy
 	server.router.DELETE("/grafana/*grafanapath", handler.handleGrafana)

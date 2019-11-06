@@ -22,8 +22,8 @@ import (
 func main() {
 
 	cmd := flag.NewFlagSet("public-api", flag.ExitOnError)
-	addr := cmd.String("addr", ":8084", "address to serve on")
-	metricsAddr := cmd.String("metrics-addr", ":9994", "address to serve scrapable metrics on")
+	addr := cmd.String("addr", "127.0.0.1:8084", "address to serve on")
+	metricsAddr := cmd.String("metrics-addr", "127.0.0.1:9958", "address to serve scrapable metrics on")
 	apiAddr := cmd.String("api-addr", "127.0.0.1:9090", "address of the prometheus service")
 	grafanaAddr := cmd.String("grafana-addr", "127.0.0.1:3000", "address of the linkerd-grafana service")
 	prometheusNamespace := cmd.String("controller-namespace", "linkerd", "namespace in which Linkerd is installed")
