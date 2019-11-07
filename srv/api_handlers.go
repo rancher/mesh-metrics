@@ -142,7 +142,7 @@ type Node struct {
 	App       string             `json:"app"`
 	Version   string             `json:"version"`
 	Namespace string             `json:"namespace"`
-	Stats     map[string]float64 `json:"stats,omitempty"`
+	Stats     map[string]float64 `json:"stats"`
 }
 
 type Edge struct {
@@ -152,7 +152,7 @@ type Edge struct {
 	ToNamespace   string             `json:"toNamespace"`
 	ToApp         string             `json:"toApp"`
 	ToVersion     string             `json:"toVersion"`
-	Stats         map[string]float64 `json:"stats,omitempty"`
+	Stats         map[string]float64 `json:"stats"`
 }
 
 func (h *handler) handleAPIEdges() http.Handler {
@@ -206,9 +206,8 @@ func (h *handler) handleAPIEdges() http.Handler {
 		// create Nodes based upon all seen apps
 		NodeList := buildNodeList(EdgeList, ns)
 
-		for _, node := range NodeList {
-			//TODO make sure this handles versions of apps correctly..
-			node.Stats, err = statQuery(ctx, promAPI, node.App, node.Version, windowDefault, "inbound")
+		for i := range NodeList {
+			NodeList[i].Stats, err = statQuery(ctx, promAPI, NodeList[i].App, NodeList[i].Version, windowDefault, "inbound")
 			if err != nil {
 				err = fmt.Errorf("unable to populate node list: %v", err)
 				logrus.Errorf("%v", err)
