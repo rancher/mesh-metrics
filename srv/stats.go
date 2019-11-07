@@ -26,7 +26,7 @@ func statQuery(ctx context.Context, promAPI v1.API, appName, window, direction s
 	for _, quantile := range quantiles {
 		go func(quantile string) {
 			latencyQuery := fmt.Sprintf(latencyQuantileQuery, quantile, queryLabels, window, "app")
-			logrus.Debug("Performing stat query: %v", latencyQuery)
+			logrus.Debugf("Performing stat query: %v", latencyQuery)
 			latencyResult, warnings, err := promAPI.Query(ctx, latencyQuery, time.Now())
 			if err != nil {
 				resultChan <- promResult{
