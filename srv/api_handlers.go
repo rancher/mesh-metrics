@@ -134,9 +134,9 @@ func (h *handler) handleClusterInfo(w http.ResponseWriter, req *http.Request, p 
 }
 
 type EdgeResp struct {
-	Nodes     []Node
-	Edges     []Edge
-	integrity string
+	Nodes     []Node `json:"nodes"`
+	Edges     []Edge `json:"edges,omitempty"`
+	Integrity string `json:"integrity"`
 }
 
 type AppVersionNamespace string
@@ -205,27 +205,23 @@ func (h *handler) handleAPIEdges(w http.ResponseWriter, req *http.Request, p htt
 	}
 	logrus.Infof("%+v", EdgeList)
 
-	NodeList := make([]Node, 0, len(EdgeList))
-	appSet := make(map[AppVersionNamespace]bool, len(EdgeList))
-	for _, edge := range EdgeList {
-		if _, ok := appSet[AppVersionNamespace(edge.FromApp+edge.FromVersion+edge.FromNamespace)]; ok {
-			continue
-		}
-		node := Node{App: edge.FromApp, Version: edge.FromVersion, Namespace: edge.FromNamespace}
-		node.Stats, err = statQuery(ctx, promAPI, edge.FromApp, windowDefault, "inbound")
+	// create Nodes based upon all seen apps
+	NodeList := buildNodeList(EdgeList)
+
+	for _, node := range NodeList {
+		//TODO make sure this handles versions of apps correctly..
+		node.Stats, err = statQuery(ctx, promAPI, node.App, windowDefault, "inbound")
 		if err != nil {
 			err = fmt.Errorf("unable to populate node list: %v", err)
 			logrus.Errorf("%v", err)
 			renderJSONError(w, err, http.StatusInternalServerError)
 		}
-		NodeList = append(NodeList, node)
-		appSet[AppVersionNamespace(edge.FromApp+edge.FromVersion+edge.FromNamespace)] = true
 	}
 
 	resp := EdgeResp{
 		Nodes:     NodeList,
 		Edges:     EdgeList,
-		integrity: "full",
+		Integrity: "full",
 	}
 	renderJSON(w, resp)
 
@@ -304,4 +300,27 @@ func processEdgeMetrics(ctx context.Context, promAPI v1.API, inbound, outbound m
 	}
 
 	return edges, nil
+}
+
+func buildNodeList(edgeList []Edge) []Node {
+	NodeList := make([]Node, 0, len(edgeList))
+	appSet := make(map[AppVersionNamespace]bool, len(edgeList))
+
+	for _, edge := range edgeList {
+		if _, ok := appSet[AppVersionNamespace(edge.FromApp+edge.FromVersion+edge.FromNamespace)]; ok {
+			continue
+		}
+		node := Node{App: edge.FromApp, Version: edge.FromVersion, Namespace: edge.FromNamespace}
+		NodeList = append(NodeList, node)
+		appSet[AppVersionNamespace(edge.FromApp+edge.FromVersion+edge.FromNamespace)] = true
+
+		if _, ok := appSet[AppVersionNamespace(edge.ToApp+edge.ToVersion+edge.ToNamespace)]; ok {
+			continue
+		}
+		node = Node{App: edge.ToApp, Version: edge.ToVersion, Namespace: edge.ToNamespace}
+		NodeList = append(NodeList, node)
+		appSet[AppVersionNamespace(edge.ToApp+edge.ToVersion+edge.ToNamespace)] = true
+
+	}
+	return NodeList
 }
