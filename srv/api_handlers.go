@@ -8,16 +8,12 @@ import (
 	"strings"
 	"time"
 
-	"github.com/prometheus/common/log"
-
-	"github.com/prometheus/common/model"
-
-	v1 "github.com/prometheus/client_golang/api/prometheus/v1"
-
-	"github.com/golang/protobuf/jsonpb"
+	"github.com/gorilla/mux"
 	"github.com/gorilla/websocket"
-	"github.com/julienschmidt/httprouter"
 	"github.com/linkerd/linkerd2/pkg/k8s"
+	v1 "github.com/prometheus/client_golang/api/prometheus/v1"
+	"github.com/prometheus/common/log"
+	"github.com/prometheus/common/model"
 	"github.com/sirupsen/logrus"
 )
 
@@ -31,7 +27,6 @@ type (
 
 var (
 	defaultResourceType = k8s.Deployment
-	pbMarshaler         = jsonpb.Marshaler{EmitDefaults: true}
 	maxMessageSize      = 2048
 	websocketUpgrader   = websocket.Upgrader{
 		ReadBufferSize:  maxMessageSize,
@@ -57,79 +52,81 @@ func renderJSON(w http.ResponseWriter, resp interface{}) {
 	w.Write(jsonResp)
 }
 
-func (h *handler) handleAPIVersion(w http.ResponseWriter, req *http.Request, p httprouter.Params) {
-
-	resp := map[string]interface{}{
-		"version": apiVersions,
-	}
-	renderJSON(w, resp)
+func (h *handler) handleAPIVersion() http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		resp := map[string]interface{}{
+			"version": apiVersions,
+		}
+		renderJSON(w, resp)
+	})
 }
 
 // return toplevel cAdvisor metrics
-func (h *handler) handleClusterInfo(w http.ResponseWriter, req *http.Request, p httprouter.Params) {
+func (h *handler) handleClusterInfo() http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		resp := make(map[string]model.Value)
+		queryValues := req.URL.Query()
+		window := queryValues.Get("window")
+		if window == "" {
+			window = windowDefault
+		}
 
-	resp := make(map[string]model.Value)
-	queryValues := req.URL.Query()
-	window := queryValues.Get("window")
-	if window == "" {
-		window = windowDefault
-	}
+		promAPI := v1.NewAPI(h.apiClient)
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		result, warnings, err := promAPI.Query(ctx, clusterMemoryUsage, time.Now())
+		if err != nil {
+			logrus.Errorf("error querying prometheus: %v", err)
+			renderJSONError(w, err, http.StatusInternalServerError)
+			return
+		}
+		if len(warnings) > 0 {
+			logrus.Warnf("%v", warnings)
+		}
+		resp["memory"] = result
 
-	promAPI := v1.NewAPI(h.apiClient)
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-	result, warnings, err := promAPI.Query(ctx, clusterMemoryUsage, time.Now())
-	if err != nil {
-		logrus.Errorf("error querying prometheus: %v", err)
-		renderJSONError(w, err, http.StatusInternalServerError)
-		return
-	}
-	if len(warnings) > 0 {
-		logrus.Warnf("%v", warnings)
-	}
-	resp["memory"] = result
+		ctx, cancel = context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		result, warnings, err = promAPI.Query(ctx, clusterCPUUsage1MinAvg, time.Now())
+		if err != nil {
+			logrus.Errorf("error querying prometheus: %v", err)
+			renderJSONError(w, err, http.StatusInternalServerError)
+			return
+		}
+		if len(warnings) > 0 {
+			logrus.Warnf("%v", warnings)
+		}
+		resp["cpu"] = result
 
-	ctx, cancel = context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-	result, warnings, err = promAPI.Query(ctx, clusterCPUUsage1MinAvg, time.Now())
-	if err != nil {
-		logrus.Errorf("error querying prometheus: %v", err)
-		renderJSONError(w, err, http.StatusInternalServerError)
-		return
-	}
-	if len(warnings) > 0 {
-		logrus.Warnf("%v", warnings)
-	}
-	resp["cpu"] = result
+		ctx, cancel = context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		result, warnings, err = promAPI.Query(ctx, clusterFilesytemUse, time.Now())
+		if err != nil {
+			logrus.Errorf("error querying prometheus: %v", err)
+			renderJSONError(w, err, http.StatusInternalServerError)
+			return
+		}
+		if len(warnings) > 0 {
+			logrus.Warnf("%v", warnings)
+		}
+		resp["filesystem"] = result
 
-	ctx, cancel = context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-	result, warnings, err = promAPI.Query(ctx, clusterFilesytemUse, time.Now())
-	if err != nil {
-		logrus.Errorf("error querying prometheus: %v", err)
-		renderJSONError(w, err, http.StatusInternalServerError)
-		return
-	}
-	if len(warnings) > 0 {
-		logrus.Warnf("%v", warnings)
-	}
-	resp["filesystem"] = result
+		ctx, cancel = context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		overallSuccessRateQuery := fmt.Sprintf(overallRespSuccessRate, window, window)
+		result, warnings, err = promAPI.Query(ctx, overallSuccessRateQuery, time.Now())
+		if err != nil {
+			logrus.Errorf("error querying prometheus: %v", err)
+			renderJSONError(w, err, http.StatusInternalServerError)
+			return
+		}
+		if len(warnings) > 0 {
+			logrus.Warnf("%v", warnings)
+		}
+		resp["overallSuccessRate"] = result
 
-	ctx, cancel = context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-	overallSuccessRateQuery := fmt.Sprintf(overallRespSuccessRate, window, window)
-	result, warnings, err = promAPI.Query(ctx, overallSuccessRateQuery, time.Now())
-	if err != nil {
-		logrus.Errorf("error querying prometheus: %v", err)
-		renderJSONError(w, err, http.StatusInternalServerError)
-		return
-	}
-	if len(warnings) > 0 {
-		logrus.Warnf("%v", warnings)
-	}
-	resp["overallSuccessRate"] = result
-
-	renderJSON(w, resp)
+		renderJSON(w, resp)
+	})
 
 }
 
@@ -158,72 +155,74 @@ type Edge struct {
 	Stats         map[string]float64 `json:"stats,omitempty"`
 }
 
-func (h *handler) handleAPIEdges(w http.ResponseWriter, req *http.Request, p httprouter.Params) {
-	ns := p.ByName("namespace")
-	if ns == "" {
-		//TODO what ns should we default to?
-		ns = "default"
-	}
+func (h *handler) handleAPIEdges() http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		vars := mux.Vars(req)
+		ns, ok := vars["namespace"]
+		if !ok {
+			ns = "default"
+		}
 
-	promAPI := v1.NewAPI(h.apiClient)
-	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
-	defer cancel()
+		promAPI := v1.NewAPI(h.apiClient)
+		ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+		defer cancel()
 
-	incomingResp, warn, err := promAPI.Query(ctx, IncomingIdentityQuery, time.Now())
+		incomingResp, warn, err := promAPI.Query(ctx, IncomingIdentityQuery, time.Now())
 
-	if warn != nil {
-		logrus.Warnf("%v", warn)
-	}
-	if err != nil {
-		renderJSONError(w, err, http.StatusInternalServerError)
-	}
-	outgoingResp, warn, err := promAPI.Query(ctx, OutgoingIdentityQuery, time.Now())
-	if warn != nil {
-		logrus.Warnf("%v", warn)
-	}
-	if err != nil {
-		renderJSONError(w, err, http.StatusInternalServerError)
-	}
-	logrus.Info("incomging resp: %+v", incomingResp)
-	logrus.Info("outgoing resp: %+v", outgoingResp)
-
-	if outgoingResp.Type() != model.ValVector {
-		err = fmt.Errorf("Unexpected query result type (expected Vector): %s", outgoingResp.Type())
-		log.Error(err)
-		panic(err)
-	}
-	if incomingResp.Type() != model.ValVector {
-		err = fmt.Errorf("Unexpected query result type (expected Vector): %s", incomingResp.Type())
-		log.Error(err)
-		panic(err)
-	}
-	//TODO use ErrGroup here
-	EdgeList, err := processEdgeMetrics(ctx, promAPI, incomingResp.(model.Vector), outgoingResp.(model.Vector), ns)
-	if err != nil {
-		logrus.Errorf("%v", err)
-		renderJSONError(w, err, http.StatusInternalServerError)
-	}
-	logrus.Infof("%+v", EdgeList)
-
-	// create Nodes based upon all seen apps
-	NodeList := buildNodeList(EdgeList)
-
-	for _, node := range NodeList {
-		//TODO make sure this handles versions of apps correctly..
-		node.Stats, err = statQuery(ctx, promAPI, node.App, windowDefault, "inbound")
+		if warn != nil {
+			logrus.Warnf("%v", warn)
+		}
 		if err != nil {
-			err = fmt.Errorf("unable to populate node list: %v", err)
+			renderJSONError(w, err, http.StatusInternalServerError)
+		}
+		outgoingResp, warn, err := promAPI.Query(ctx, OutgoingIdentityQuery, time.Now())
+		if warn != nil {
+			logrus.Warnf("%v", warn)
+		}
+		if err != nil {
+			renderJSONError(w, err, http.StatusInternalServerError)
+		}
+		logrus.Info("incomging resp: %+v", incomingResp)
+		logrus.Info("outgoing resp: %+v", outgoingResp)
+
+		if outgoingResp.Type() != model.ValVector {
+			err = fmt.Errorf("Unexpected query result type (expected Vector): %s", outgoingResp.Type())
+			log.Error(err)
+			panic(err)
+		}
+		if incomingResp.Type() != model.ValVector {
+			err = fmt.Errorf("Unexpected query result type (expected Vector): %s", incomingResp.Type())
+			log.Error(err)
+			panic(err)
+		}
+		//TODO use ErrGroup here
+		EdgeList, err := processEdgeMetrics(ctx, promAPI, incomingResp.(model.Vector), outgoingResp.(model.Vector), ns)
+		if err != nil {
 			logrus.Errorf("%v", err)
 			renderJSONError(w, err, http.StatusInternalServerError)
 		}
-	}
+		logrus.Infof("%+v", EdgeList)
 
-	resp := EdgeResp{
-		Nodes:     NodeList,
-		Edges:     EdgeList,
-		Integrity: "full",
-	}
-	renderJSON(w, resp)
+		// create Nodes based upon all seen apps
+		NodeList := buildNodeList(EdgeList)
+
+		for _, node := range NodeList {
+			//TODO make sure this handles versions of apps correctly..
+			node.Stats, err = statQuery(ctx, promAPI, node.App, windowDefault, "inbound")
+			if err != nil {
+				err = fmt.Errorf("unable to populate node list: %v", err)
+				logrus.Errorf("%v", err)
+				renderJSONError(w, err, http.StatusInternalServerError)
+			}
+		}
+
+		resp := EdgeResp{
+			Nodes:     NodeList,
+			Edges:     EdgeList,
+			Integrity: "full",
+		}
+		renderJSON(w, resp)
+	})
 
 }
 
