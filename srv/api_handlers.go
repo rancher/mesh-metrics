@@ -139,21 +139,23 @@ type EdgeResp struct {
 	integrity string
 }
 
+type AppVersionNamespace string
+
 type Node struct {
-	App       string                       `json:"app"`
-	Version   string                       `json:"version"`
-	Namespace string                       `json:"namespace"`
-	Stats     map[string]model.SampleValue `json:"stats,omitempty"`
+	App       string             `json:"app"`
+	Version   string             `json:"version"`
+	Namespace string             `json:"namespace"`
+	Stats     map[string]float64 `json:"stats,omitempty"`
 }
 
 type Edge struct {
-	FromNamespace string                       `json:"fromNamespace"`
-	FromApp       string                       `json:"fromApp"`
-	FromVersion   string                       `json:"fromVersion"`
-	ToNamespace   string                       `json:"toNamespace"`
-	ToApp         string                       `json:"toApp"`
-	ToVersion     string                       `json:"toVersion"`
-	Stats         map[string]model.SampleValue `json:"stats,omitempty"`
+	FromNamespace string             `json:"fromNamespace"`
+	FromApp       string             `json:"fromApp"`
+	FromVersion   string             `json:"fromVersion"`
+	ToNamespace   string             `json:"toNamespace"`
+	ToApp         string             `json:"toApp"`
+	ToVersion     string             `json:"toVersion"`
+	Stats         map[string]float64 `json:"stats,omitempty"`
 }
 
 func (h *handler) handleAPIEdges(w http.ResponseWriter, req *http.Request, p httprouter.Params) {
@@ -204,9 +206,9 @@ func (h *handler) handleAPIEdges(w http.ResponseWriter, req *http.Request, p htt
 	logrus.Infof("%+v", EdgeList)
 
 	NodeList := make([]Node, 0, len(EdgeList))
-	appSet := make(map[string]bool, len(EdgeList))
+	appSet := make(map[AppVersionNamespace]bool, len(EdgeList))
 	for _, edge := range EdgeList {
-		if _, ok := appSet[edge.FromApp]; ok {
+		if _, ok := appSet[AppVersionNamespace(edge.FromApp+edge.FromVersion+edge.FromNamespace)]; ok {
 			continue
 		}
 		node := Node{App: edge.FromApp, Version: edge.FromVersion, Namespace: edge.FromNamespace}
@@ -217,7 +219,7 @@ func (h *handler) handleAPIEdges(w http.ResponseWriter, req *http.Request, p htt
 			renderJSONError(w, err, http.StatusInternalServerError)
 		}
 		NodeList = append(NodeList, node)
-		appSet[edge.FromApp] = true
+		appSet[AppVersionNamespace(edge.FromApp+edge.FromVersion+edge.FromNamespace)] = true
 	}
 
 	resp := EdgeResp{

@@ -19,7 +19,7 @@ type promResult struct {
 
 var quantiles = [3]string{promLatencyP50, promLatencyP95, promLatencyP99}
 
-func statQuery(ctx context.Context, promAPI v1.API, appName, window, direction string) (map[string]model.SampleValue, error) {
+func statQuery(ctx context.Context, promAPI v1.API, appName, window, direction string) (map[string]float64, error) {
 	resultChan := make(chan promResult)
 	queryLabels := fmt.Sprintf("{direction=\"%s\",app=\"%s\"}", direction, appName)
 
@@ -59,7 +59,7 @@ func statQuery(ctx context.Context, promAPI v1.API, appName, window, direction s
 		}(quantile)
 	}
 
-	resp := make(map[string]model.SampleValue)
+	resp := make(map[string]float64)
 	var err error
 	for i := 0; i < len(quantiles); i++ {
 		result := <-resultChan
@@ -81,7 +81,7 @@ func statQuery(ctx context.Context, promAPI v1.API, appName, window, direction s
 			if len(result.vec) == 0 {
 				resp[label] = 0.0
 			} else {
-				resp[label] = result.vec[0].Value
+				resp[label] = float64(result.vec[0].Value)
 			}
 		}
 	}
@@ -103,9 +103,9 @@ func statQuery(ctx context.Context, promAPI v1.API, appName, window, direction s
 		return nil, fmt.Errorf("unexpected query result type (expected Vector): %s", result.Type())
 	}
 	if len(resultScalar) == 0 {
-		resp["rps"] = model.SampleValue(0.0)
+		resp["rps"] = float64(model.SampleValue(0.0))
 	} else {
-		resp["rps"] = resultScalar[0].Value
+		resp["rps"] = float64(resultScalar[0].Value)
 	}
 
 	queryLabels = fmt.Sprintf("{classification=\"success\",direction=\"%s\",app=\"%s\"}", direction, appName)
@@ -122,9 +122,9 @@ func statQuery(ctx context.Context, promAPI v1.API, appName, window, direction s
 		return nil, fmt.Errorf("unexpected query result type (expected Vector): %s", result.Type())
 	}
 	if len(resultScalar) == 0 {
-		resp["successRate"] = model.SampleValue(0.0)
+		resp["successRate"] = float64(model.SampleValue(0.0))
 	} else {
-		resp["successRate"] = resultScalar[0].Value
+		resp["successRate"] = float64(resultScalar[0].Value)
 	}
 	return resp, nil
 }
