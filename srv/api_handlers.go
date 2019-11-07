@@ -142,7 +142,7 @@ type Node struct {
 	App       string             `json:"app"`
 	Version   string             `json:"version"`
 	Namespace string             `json:"namespace"`
-	Stats     map[string]float64 `json:"stats,omitempty"`
+	Stats     map[string]float64 `json:"stats"`
 }
 
 type Edge struct {
@@ -152,7 +152,7 @@ type Edge struct {
 	ToNamespace   string             `json:"toNamespace"`
 	ToApp         string             `json:"toApp"`
 	ToVersion     string             `json:"toVersion"`
-	Stats         map[string]float64 `json:"stats,omitempty"`
+	Stats         map[string]float64 `json:"stats"`
 }
 
 func (h *handler) handleAPIEdges() http.Handler {
@@ -182,8 +182,8 @@ func (h *handler) handleAPIEdges() http.Handler {
 		if err != nil {
 			renderJSONError(w, err, http.StatusInternalServerError)
 		}
-		logrus.Info("incomging resp: %+v", incomingResp)
-		logrus.Info("outgoing resp: %+v", outgoingResp)
+		logrus.Debugf("incomging resp: %+v", incomingResp)
+		logrus.Debugf("outgoing resp: %+v", outgoingResp)
 
 		if outgoingResp.Type() != model.ValVector {
 			err = fmt.Errorf("Unexpected query result type (expected Vector): %s", outgoingResp.Type())
@@ -204,11 +204,10 @@ func (h *handler) handleAPIEdges() http.Handler {
 		logrus.Infof("%+v", EdgeList)
 
 		// create Nodes based upon all seen apps
-		NodeList := buildNodeList(EdgeList)
+		NodeList := buildNodeList(EdgeList, ns)
 
-		for _, node := range NodeList {
-			//TODO make sure this handles versions of apps correctly..
-			node.Stats, err = statQuery(ctx, promAPI, node.App, windowDefault, "inbound")
+		for i := range NodeList {
+			NodeList[i].Stats, err = statQuery(ctx, promAPI, NodeList[i].App, NodeList[i].Version, windowDefault, "inbound")
 			if err != nil {
 				err = fmt.Errorf("unable to populate node list: %v", err)
 				logrus.Errorf("%v", err)
@@ -237,7 +236,8 @@ func processEdgeMetrics(ctx context.Context, promAPI v1.API, inbound, outbound m
 	for _, sample := range inbound {
 		// skip inbound results without a clientID because we cannot construct edge
 		// information
-		if clientID, ok := sample.Metric[model.LabelName("client_id")]; ok {
+		clientID, ok := sample.Metric[model.LabelName("client_id")]
+		if ok {
 			dstResource := string(sample.Metric[model.LabelName(resourceReplacementInbound)])
 
 			// format of clientId is id.namespace.serviceaccount.cluster.local
@@ -245,6 +245,8 @@ func processEdgeMetrics(ctx context.Context, promAPI v1.API, inbound, outbound m
 			srcNs := clientIDSlice[1]
 			key := model.LabelValue(fmt.Sprintf("%s.%s", dstResource, srcNs))
 			dstIndex[key] = sample.Metric
+		} else {
+			logrus.Debug("dropped metric: %s", sample.Metric)
 		}
 	}
 
@@ -289,7 +291,7 @@ func processEdgeMetrics(ctx context.Context, promAPI v1.API, inbound, outbound m
 				ToVersion:     string(dst[model.LabelName("version")]),
 			}
 
-			stats, err := statQuery(ctx, promAPI, edge.FromApp, windowDefault, "outbound")
+			stats, err := statQuery(ctx, promAPI, edge.FromApp, edge.FromVersion, windowDefault, "outbound")
 			if err != nil {
 				return nil, err
 			}
@@ -301,24 +303,29 @@ func processEdgeMetrics(ctx context.Context, promAPI v1.API, inbound, outbound m
 	return edges, nil
 }
 
-func buildNodeList(edgeList []Edge) []Node {
+func buildNodeList(edgeList []Edge, targetNamespace string) []Node {
 	NodeList := make([]Node, 0, len(edgeList))
 	appSet := make(map[AppVersionNamespace]bool, len(edgeList))
 
 	for _, edge := range edgeList {
-		if _, ok := appSet[AppVersionNamespace(edge.FromApp+edge.FromVersion+edge.FromNamespace)]; ok {
-			continue
-		}
-		node := Node{App: edge.FromApp, Version: edge.FromVersion, Namespace: edge.FromNamespace}
-		NodeList = append(NodeList, node)
-		appSet[AppVersionNamespace(edge.FromApp+edge.FromVersion+edge.FromNamespace)] = true
 
-		if _, ok := appSet[AppVersionNamespace(edge.ToApp+edge.ToVersion+edge.ToNamespace)]; ok {
-			continue
+		// check From node hasn't been seen and is in the right namespace
+		if _, seen := appSet[AppVersionNamespace(edge.FromApp+edge.FromVersion+edge.FromNamespace)]; !seen {
+			if edge.FromNamespace == targetNamespace {
+				node := Node{App: edge.FromApp, Version: edge.FromVersion, Namespace: edge.FromNamespace}
+				NodeList = append(NodeList, node)
+				appSet[AppVersionNamespace(edge.FromApp+edge.FromVersion+edge.FromNamespace)] = true
+			}
 		}
-		node = Node{App: edge.ToApp, Version: edge.ToVersion, Namespace: edge.ToNamespace}
-		NodeList = append(NodeList, node)
-		appSet[AppVersionNamespace(edge.ToApp+edge.ToVersion+edge.ToNamespace)] = true
+
+		// check To node hasn't been added and is in the right namespace
+		if _, seen := appSet[AppVersionNamespace(edge.ToApp+edge.ToVersion+edge.ToNamespace)]; !seen {
+			if edge.ToNamespace == targetNamespace {
+				node := Node{App: edge.ToApp, Version: edge.ToVersion, Namespace: edge.ToNamespace}
+				NodeList = append(NodeList, node)
+				appSet[AppVersionNamespace(edge.ToApp+edge.ToVersion+edge.ToNamespace)] = true
+			}
+		}
 
 	}
 	return NodeList

@@ -19,9 +19,14 @@ type promResult struct {
 
 var quantiles = [3]string{promLatencyP50, promLatencyP95, promLatencyP99}
 
-func statQuery(ctx context.Context, promAPI v1.API, appName, window, direction string) (map[string]float64, error) {
+func statQuery(ctx context.Context, promAPI v1.API, appName, version, window, direction string) (map[string]float64, error) {
 	resultChan := make(chan promResult)
-	queryLabels := fmt.Sprintf("{direction=\"%s\",app=\"%s\"}", direction, appName)
+	var queryLabels string
+	if version != "" {
+		queryLabels = fmt.Sprintf("{direction=\"%s\",app=\"%s\",version=\"%s\"}", direction, appName, version)
+	} else {
+		queryLabels = fmt.Sprintf("{direction=\"%s\",app=\"%s\"}", direction, appName)
+	}
 
 	for _, quantile := range quantiles {
 		go func(quantile string) {
@@ -107,8 +112,11 @@ func statQuery(ctx context.Context, promAPI v1.API, appName, window, direction s
 	} else {
 		resp["rps"] = float64(resultScalar[0].Value)
 	}
-
-	queryLabels = fmt.Sprintf("{classification=\"success\",direction=\"%s\",app=\"%s\"}", direction, appName)
+	if version != "" {
+		queryLabels = fmt.Sprintf("{classification=\"success\",direction=\"%s\",app=\"%s\",version=\"%s\"}", direction, appName, version)
+	} else {
+		queryLabels = fmt.Sprintf("{classification=\"success\",direction=\"%s\",app=\"%s\"}", direction, appName)
+	}
 	successRateQuery := fmt.Sprintf(SUCCESSRATE, queryLabels, window, queryLabels, window)
 	result, warnings, err = promAPI.Query(ctx, successRateQuery, time.Now())
 	if err != nil {
