@@ -4,12 +4,10 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/prometheus/client_golang/api"
-
-	"github.com/julienschmidt/httprouter"
-	pb "github.com/linkerd/linkerd2/controller/gen/public"
+	"github.com/gorilla/mux"
 	"github.com/linkerd/linkerd2/pkg/k8s"
 	"github.com/linkerd/linkerd2/pkg/prometheus"
+	"github.com/prometheus/client_golang/api"
 )
 
 const (
@@ -20,11 +18,10 @@ type (
 	// Server encapsulates the code for talking with prometheus
 	Server struct {
 		reload bool
-		router *httprouter.Router
+		router *mux.Router
 	}
 	// might be used for creating clients
 	appParams struct {
-		Data                pb.VersionInfo
 		UUID                string
 		ControllerNamespace string
 		Error               bool
@@ -58,11 +55,8 @@ func NewServer(
 		reload: reload,
 	}
 
-	server.router = &httprouter.Router{
-		RedirectTrailingSlash:  true,
-		RedirectFixedPath:      true,
-		HandleMethodNotAllowed: true, // give 405 if you are using something we don't support
-	}
+	server.router = mux.NewRouter()
+	server.router.UseEncodedPath()
 
 	wrappedServer := prometheus.WithTelemetry(server)
 	handler := &handler{
@@ -82,24 +76,13 @@ func NewServer(
 	}
 
 	// webapp routes
-	server.router.GET("/", handler.handleIndex)
-	server.router.GET("/hello", handler.handleHello)
+	server.router.Handle("/", handler.handleHello())
+	server.router.Handle("/hello", handler.handleHello())
 
-	// webapp api routes
-	server.router.GET("/api/version", handler.handleAPIVersion)
-
-	server.router.GET("/api/v0/cluster", handler.handleClusterInfo)
+	server.router.Handle("/api/version", handler.handleAPIVersion())
+	server.router.Handle("/api/v0/cluster", handler.handleClusterInfo())
 	//server.router.GET("/api/v0/app/:app", handler.handleAppStats)
-	server.router.GET("/api/v0/namespace/:namespace", handler.handleAPIEdges)
-
-	// grafana proxy
-	server.router.DELETE("/grafana/*grafanapath", handler.handleGrafana)
-	server.router.GET("/grafana/*grafanapath", handler.handleGrafana)
-	server.router.HEAD("/grafana/*grafanapath", handler.handleGrafana)
-	server.router.OPTIONS("/grafana/*grafanapath", handler.handleGrafana)
-	server.router.PATCH("/grafana/*grafanapath", handler.handleGrafana)
-	server.router.POST("/grafana/*grafanapath", handler.handleGrafana)
-	server.router.PUT("/grafana/*grafanapath", handler.handleGrafana)
+	server.router.Handle("/api/v0/namespace/{namespace}", handler.handleAPIEdges())
 
 	return httpServer
 }
