@@ -43,7 +43,6 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 // control plane.
 func NewServer(
 	addr string,
-	grafanaAddr string,
 	controllerNamespace string,
 	clusterDomain string,
 	reload bool,
@@ -65,7 +64,6 @@ func NewServer(
 		uuid:                uuid,
 		controllerNamespace: controllerNamespace,
 		clusterDomain:       clusterDomain,
-		grafanaProxy:        newGrafanaProxy(grafanaAddr),
 	}
 
 	httpServer := &http.Server{

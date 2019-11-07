@@ -25,7 +25,6 @@ func main() {
 	addr := cmd.String("addr", "127.0.0.1:8084", "address to serve on")
 	metricsAddr := cmd.String("metrics-addr", "127.0.0.1:9958", "address to serve scrapable metrics on")
 	apiAddr := cmd.String("api-addr", "127.0.0.1:9090", "address of the prometheus service")
-	grafanaAddr := cmd.String("grafana-addr", "127.0.0.1:3000", "address of the linkerd-grafana service")
 	prometheusNamespace := cmd.String("controller-namespace", "linkerd", "namespace in which Linkerd is installed")
 	debug := cmd.Bool("debug", false, "enable debug logging")
 	kubeConfigPath := cmd.String("kubeconfig", "", "path to kube config")
@@ -48,6 +47,9 @@ func main() {
 	client, err := api.NewClient(api.Config{
 		Address: *apiAddr,
 	})
+	if err != nil {
+		logrus.Fatalf("failed to construct client for API server URL %s", *apiAddr)
+	}
 
 	k8sAPI, err := k8s.NewAPI(*kubeConfigPath, "", "", 0)
 	if err != nil {
@@ -58,7 +60,7 @@ func main() {
 	signal.Notify(stop, os.Interrupt, syscall.SIGTERM)
 	uuidstring := uuid.New().String()
 
-	server := srv.NewServer(*addr, *grafanaAddr, *prometheusNamespace, "127.0.0.1", true, uuidstring, client, k8sAPI)
+	server := srv.NewServer(*addr, *prometheusNamespace, "127.0.0.1", true, uuidstring, client, k8sAPI)
 
 	go func() {
 		logrus.Infof("starting HTTP server on %+v", *addr)

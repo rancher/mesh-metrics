@@ -15,7 +15,6 @@ type (
 		uuid                string
 		controllerNamespace string
 		clusterDomain       string
-		grafanaProxy        *grafanaProxy
 	}
 )
 
