@@ -4,7 +4,8 @@ go 1.13
 
 replace (
 	github.com/Azure/go-autorest => github.com/Azure/go-autorest v13.0.0+incompatible
-	github.com/linkerd/linkerd2 => github.com/daxmc99/linkerd2 v0.5.1-0.20191003181941-d5745aa9d3a9
+	github.com/deislabs/smi-sdk-go => github.com/deislabs/smi-sdk-go v0.2.1-0.20191014150154-546a4a4075e2
+	github.com/linkerd/linkerd2 => github.com/daxmc99/linkerd2 v0.5.1-0.20191109210703-633c3066107c
 )
 
 require (
@@ -18,7 +19,7 @@ require (
 	github.com/gorilla/mux v1.7.3
 	github.com/gorilla/websocket v1.4.1
 	github.com/grpc-ecosystem/go-grpc-prometheus v1.2.0 // indirect
-	github.com/linkerd/linkerd2 v0.5.1-0.20191010175117-1039d8254738
+	github.com/linkerd/linkerd2 v0.0.0-00010101000000-000000000000
 	github.com/onsi/ginkgo v1.8.0 // indirect
 	github.com/onsi/gomega v1.5.0 // indirect
 	github.com/prometheus/client_golang v1.1.0
