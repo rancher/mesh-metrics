@@ -5,7 +5,6 @@ import (
 	"time"
 
 	"github.com/gorilla/mux"
-	"github.com/linkerd/linkerd2/pkg/k8s"
 	"github.com/linkerd/linkerd2/pkg/prometheus"
 	"github.com/prometheus/client_golang/api"
 )
@@ -48,7 +47,7 @@ func NewServer(
 	reload bool,
 	uuid string,
 	apiClient api.Client,
-	k8sAPI *k8s.KubernetesAPI,
+	// k8sAPI *k8s.KubernetesAPI,
 ) *http.Server {
 	server := &Server{
 		reload: reload,
@@ -60,7 +59,6 @@ func NewServer(
 	wrappedServer := prometheus.WithTelemetry(server)
 	handler := &handler{
 		apiClient:           apiClient,
-		k8sAPI:              k8sAPI,
 		uuid:                uuid,
 		controllerNamespace: controllerNamespace,
 		clusterDomain:       clusterDomain,
