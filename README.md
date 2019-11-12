@@ -81,3 +81,5 @@ Example json blob
   ]
 }
 ```
+
+Dockerfile is availible at daxl/prometheus-scraper:$version

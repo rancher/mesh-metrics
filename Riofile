@@ -1,0 +1,11 @@
+services:
+    prom-scraper:
+        app: prom-scraper
+        version: v0
+        image: daxl/prometheus-scraper:v0
+        args:
+        - -debug
+        - -api-addr=http://linkerd-prometheus.linkerd.svc.cluster.local:9090
+        ports:
+        - 8084/http,api
+
