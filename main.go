@@ -9,7 +9,7 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/daxmc99/prometheus-scraper/srv"
+	"github.com/daxmc99/mesh-metrics/srv"
 	"github.com/google/uuid"
 	"github.com/prometheus/client_golang/api"
 	"github.com/sirupsen/logrus"

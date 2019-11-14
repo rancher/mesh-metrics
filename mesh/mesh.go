@@ -3,7 +3,7 @@ package lib
 import (
 	"net/http"
 
-	"github.com/daxmc99/prometheus-scraper/srv"
+	"github.com/daxmc99/mesh-metrics/srv"
 	"github.com/prometheus/client_golang/api"
 	v1 "github.com/prometheus/client_golang/api/prometheus/v1"
 	"github.com/sirupsen/logrus"
