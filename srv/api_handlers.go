@@ -292,6 +292,83 @@ func HandleEdges(api v1.API) http.Handler {
 
 }
 
+func (h *handler) SummaryHandler() http.Handler {
+	return HandleSummary(h.promAPI)
+
+}
+
+func HandleSummary(api v1.API) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+
+		promAPI := api
+		ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+		defer cancel()
+
+		incomingResp, warn, err := promAPI.Query(ctx, IncomingIdentityQuery, time.Now())
+
+		if warn != nil {
+			logrus.Warnf("%v", warn)
+		}
+		if err != nil {
+			renderJSONError(w, err, http.StatusInternalServerError)
+			return
+		}
+		outgoingResp, warn, err := promAPI.Query(ctx, OutgoingIdentityQuery, time.Now())
+		if warn != nil {
+			logrus.Warnf("%v", warn)
+		}
+		if err != nil {
+			renderJSONError(w, err, http.StatusInternalServerError)
+			return
+		}
+		logrus.Debugf("incomging resp: %+v", incomingResp)
+		logrus.Debugf("outgoing resp: %+v", outgoingResp)
+
+		if outgoingResp.Type() != model.ValVector {
+			err = fmt.Errorf("Unexpected query result type (expected Vector): %s", outgoingResp.Type())
+			log.Error(err)
+			renderJSONError(w, err, http.StatusInternalServerError)
+			return
+		}
+		if incomingResp.Type() != model.ValVector {
+			err = fmt.Errorf("Unexpected query result type (expected Vector): %s", incomingResp.Type())
+			log.Error(err)
+			renderJSONError(w, err, http.StatusInternalServerError)
+			return
+		}
+
+		//TODO use ErrGroup here
+		EdgeList, err := processEdgeMetrics(ctx, promAPI, incomingResp.(model.Vector), outgoingResp.(model.Vector), "")
+		if err != nil {
+			logrus.Errorf("%v", err)
+			renderJSONError(w, err, http.StatusInternalServerError)
+			return
+		}
+		logrus.Infof("%+v", EdgeList)
+
+		// create Nodes based upon all seen apps
+		NodeList := buildNodeList(EdgeList, "")
+
+		for i := range NodeList {
+			NodeList[i].Stats, err = statQuery(ctx, promAPI, NodeList[i].App, NodeList[i].Version, windowDefault, "inbound")
+			if err != nil {
+				err = fmt.Errorf("unable to populate node list: %v", err)
+				logrus.Errorf("%v", err)
+				renderJSONError(w, err, http.StatusInternalServerError)
+				return
+			}
+		}
+
+		resp := EdgeResp{
+			Nodes:     NodeList,
+			Edges:     EdgeList,
+			Integrity: "full",
+		}
+		renderJSON(w, resp)
+	})
+}
+
+// buildNodeList creates a node list from slice of edges, optionally creating a nodelist if targetNamesace is not ""
 func buildNodeList(edgeList []Edge, targetNamespace string) []Node {
 	NodeList := make([]Node, 0, len(edgeList))
 	appSet := make(map[AppVersionNamespace]bool, len(edgeList))
@@ -300,7 +377,7 @@ func buildNodeList(edgeList []Edge, targetNamespace string) []Node {
 
 		// check From node hasn't been seen and is in the right namespace
 		if _, seen := appSet[AppVersionNamespace(edge.FromApp+edge.FromVersion+edge.FromNamespace)]; !seen {
-			if edge.FromNamespace == targetNamespace {
+			if targetNamespace == "" || edge.FromNamespace == targetNamespace {
 				node := Node{App: edge.FromApp, Version: edge.FromVersion, Namespace: edge.FromNamespace}
 				NodeList = append(NodeList, node)
 				appSet[AppVersionNamespace(edge.FromApp+edge.FromVersion+edge.FromNamespace)] = true
@@ -309,7 +386,7 @@ func buildNodeList(edgeList []Edge, targetNamespace string) []Node {
 
 		// check To node hasn't been added and is in the right namespace
 		if _, seen := appSet[AppVersionNamespace(edge.ToApp+edge.ToVersion+edge.ToNamespace)]; !seen {
-			if edge.ToNamespace == targetNamespace {
+			if targetNamespace == "" || edge.ToNamespace == targetNamespace {
 				node := Node{App: edge.ToApp, Version: edge.ToVersion, Namespace: edge.ToNamespace}
 				NodeList = append(NodeList, node)
 				appSet[AppVersionNamespace(edge.ToApp+edge.ToVersion+edge.ToNamespace)] = true
