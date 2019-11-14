@@ -163,6 +163,7 @@ func (h *handler) handleAPIEdges() http.Handler {
 		}
 		if err != nil {
 			renderJSONError(w, err, http.StatusInternalServerError)
+			return
 		}
 		outgoingResp, warn, err := promAPI.Query(ctx, OutgoingIdentityQuery, time.Now())
 		if warn != nil {
@@ -170,6 +171,7 @@ func (h *handler) handleAPIEdges() http.Handler {
 		}
 		if err != nil {
 			renderJSONError(w, err, http.StatusInternalServerError)
+			return
 		}
 		logrus.Debugf("incomging resp: %+v", incomingResp)
 		logrus.Debugf("outgoing resp: %+v", outgoingResp)
@@ -189,6 +191,7 @@ func (h *handler) handleAPIEdges() http.Handler {
 		if err != nil {
 			logrus.Errorf("%v", err)
 			renderJSONError(w, err, http.StatusInternalServerError)
+			return
 		}
 		logrus.Infof("%+v", EdgeList)
 
@@ -201,6 +204,7 @@ func (h *handler) handleAPIEdges() http.Handler {
 				err = fmt.Errorf("unable to populate node list: %v", err)
 				logrus.Errorf("%v", err)
 				renderJSONError(w, err, http.StatusInternalServerError)
+				return
 			}
 		}
 
@@ -233,6 +237,7 @@ func HandleEdges(api v1.API) http.Handler {
 		}
 		if err != nil {
 			renderJSONError(w, err, http.StatusInternalServerError)
+			return
 		}
 		outgoingResp, warn, err := promAPI.Query(ctx, OutgoingIdentityQuery, time.Now())
 		if warn != nil {
@@ -240,6 +245,7 @@ func HandleEdges(api v1.API) http.Handler {
 		}
 		if err != nil {
 			renderJSONError(w, err, http.StatusInternalServerError)
+			return
 		}
 		logrus.Debugf("incomging resp: %+v", incomingResp)
 		logrus.Debugf("outgoing resp: %+v", outgoingResp)
@@ -247,18 +253,21 @@ func HandleEdges(api v1.API) http.Handler {
 		if outgoingResp.Type() != model.ValVector {
 			err = fmt.Errorf("Unexpected query result type (expected Vector): %s", outgoingResp.Type())
 			log.Error(err)
-			panic(err)
+			renderJSONError(w, err, http.StatusInternalServerError)
+			return
 		}
 		if incomingResp.Type() != model.ValVector {
 			err = fmt.Errorf("Unexpected query result type (expected Vector): %s", incomingResp.Type())
 			log.Error(err)
-			panic(err)
+			renderJSONError(w, err, http.StatusInternalServerError)
+			return
 		}
 		//TODO use ErrGroup here
 		EdgeList, err := processEdgeMetrics(ctx, promAPI, incomingResp.(model.Vector), outgoingResp.(model.Vector), ns)
 		if err != nil {
 			logrus.Errorf("%v", err)
 			renderJSONError(w, err, http.StatusInternalServerError)
+			return
 		}
 		logrus.Infof("%+v", EdgeList)
 
@@ -271,6 +280,7 @@ func HandleEdges(api v1.API) http.Handler {
 				err = fmt.Errorf("unable to populate node list: %v", err)
 				logrus.Errorf("%v", err)
 				renderJSONError(w, err, http.StatusInternalServerError)
+				return
 			}
 		}
 
