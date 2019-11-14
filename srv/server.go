@@ -4,6 +4,8 @@ import (
 	"net/http"
 	"time"
 
+	v1 "github.com/prometheus/client_golang/api/prometheus/v1"
+
 	"github.com/gorilla/mux"
 	"github.com/prometheus/client_golang/api"
 	"github.com/prometheus/client_golang/prometheus"
@@ -86,7 +88,6 @@ func NewServer(
 	reload bool,
 	uuid string,
 	apiClient api.Client,
-	// k8sAPI *k8s.KubernetesAPI,
 ) *http.Server {
 	server := &Server{
 		reload: reload,
@@ -96,8 +97,11 @@ func NewServer(
 	server.router.UseEncodedPath()
 
 	wrappedServer := WithTelemetry(server)
+
+	//create prometheus API (safe for use with multiple go routines)
+	promAPI := v1.NewAPI(apiClient)
 	handler := &handler{
-		apiClient:           apiClient,
+		promAPI:             promAPI,
 		uuid:                uuid,
 		controllerNamespace: controllerNamespace,
 		clusterDomain:       clusterDomain,
