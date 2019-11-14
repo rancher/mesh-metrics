@@ -2,7 +2,7 @@ services:
     prom-scraper:
         app: prom-scraper
         version: v0
-        image: daxl/prometheus-scraper:v0
+        image: daxl/mesh-metrics:dev
         args:
         - -debug
         - -api-addr=http://linkerd-prometheus.linkerd.svc.cluster.local:9090

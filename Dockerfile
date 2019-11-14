@@ -10,11 +10,11 @@ RUN go mod download
 
 COPY . .
 
-RUN go build -o prom-scraper .
+RUN go build -o mesh-metrics .
 
 
 ENTRYPOINT [ "./main" ]
 
 FROM alpine:3.9 as production
-COPY --from=builder /app/prom-scraper /usr/bin/ 
-ENTRYPOINT [ "prom-scraper" ]
+COPY --from=builder /app/mesh-metrics /usr/bin/ 
+ENTRYPOINT [ "mesh-metrics" ]
