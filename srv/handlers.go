@@ -4,12 +4,12 @@ import (
 	"fmt"
 	"net/http"
 
-	"github.com/prometheus/client_golang/api"
+	v1 "github.com/prometheus/client_golang/api/prometheus/v1"
 )
 
 type (
 	handler struct {
-		apiClient           api.Client
+		promAPI             v1.API
 		uuid                string
 		controllerNamespace string
 		clusterDomain       string

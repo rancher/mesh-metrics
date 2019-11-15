@@ -5,11 +5,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"strings"
 	"time"
 
-	"github.com/gorilla/mux"
 	v1 "github.com/prometheus/client_golang/api/prometheus/v1"
+
+	"github.com/gorilla/mux"
 	"github.com/prometheus/common/log"
 	"github.com/prometheus/common/model"
 	"github.com/sirupsen/logrus"
@@ -60,10 +60,9 @@ func (h *handler) handleClusterInfo() http.Handler {
 			window = windowDefault
 		}
 
-		promAPI := v1.NewAPI(h.apiClient)
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
-		result, warnings, err := promAPI.Query(ctx, clusterMemoryUsage, time.Now())
+		result, warnings, err := h.promAPI.Query(ctx, clusterMemoryUsage, time.Now())
 		if err != nil {
 			logrus.Errorf("error querying prometheus: %v", err)
 			renderJSONError(w, err, http.StatusInternalServerError)
@@ -76,7 +75,7 @@ func (h *handler) handleClusterInfo() http.Handler {
 
 		ctx, cancel = context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
-		result, warnings, err = promAPI.Query(ctx, clusterCPUUsage1MinAvg, time.Now())
+		result, warnings, err = h.promAPI.Query(ctx, clusterCPUUsage1MinAvg, time.Now())
 		if err != nil {
 			logrus.Errorf("error querying prometheus: %v", err)
 			renderJSONError(w, err, http.StatusInternalServerError)
@@ -89,7 +88,7 @@ func (h *handler) handleClusterInfo() http.Handler {
 
 		ctx, cancel = context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
-		result, warnings, err = promAPI.Query(ctx, clusterFilesytemUse, time.Now())
+		result, warnings, err = h.promAPI.Query(ctx, clusterFilesytemUse, time.Now())
 		if err != nil {
 			logrus.Errorf("error querying prometheus: %v", err)
 			renderJSONError(w, err, http.StatusInternalServerError)
@@ -103,7 +102,7 @@ func (h *handler) handleClusterInfo() http.Handler {
 		ctx, cancel = context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
 		overallSuccessRateQuery := fmt.Sprintf(overallRespSuccessRate, window, window)
-		result, warnings, err = promAPI.Query(ctx, overallSuccessRateQuery, time.Now())
+		result, warnings, err = h.promAPI.Query(ctx, overallSuccessRateQuery, time.Now())
 		if err != nil {
 			logrus.Errorf("error querying prometheus: %v", err)
 			renderJSONError(w, err, http.StatusInternalServerError)
@@ -149,14 +148,13 @@ func (h *handler) handleAPIEdges() http.Handler {
 		vars := mux.Vars(req)
 		ns, ok := vars["namespace"]
 		if !ok {
-			ns = "default"
+			ns = ""
 		}
 
-		promAPI := v1.NewAPI(h.apiClient)
 		ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 		defer cancel()
 
-		incomingResp, warn, err := promAPI.Query(ctx, IncomingIdentityQuery, time.Now())
+		incomingResp, warn, err := h.promAPI.Query(ctx, IncomingIdentityQuery, time.Now())
 
 		if warn != nil {
 			logrus.Warnf("%v", warn)
@@ -165,7 +163,7 @@ func (h *handler) handleAPIEdges() http.Handler {
 			renderJSONError(w, err, http.StatusInternalServerError)
 			return
 		}
-		outgoingResp, warn, err := promAPI.Query(ctx, OutgoingIdentityQuery, time.Now())
+		outgoingResp, warn, err := h.promAPI.Query(ctx, OutgoingIdentityQuery, time.Now())
 		if warn != nil {
 			logrus.Warnf("%v", warn)
 		}
@@ -187,7 +185,7 @@ func (h *handler) handleAPIEdges() http.Handler {
 			panic(err)
 		}
 		//TODO use ErrGroup here
-		EdgeList, err := processEdgeMetrics(ctx, promAPI, incomingResp.(model.Vector), outgoingResp.(model.Vector), ns)
+		EdgeList, err := processEdgeMetrics(ctx, h.promAPI, incomingResp.(model.Vector), outgoingResp.(model.Vector), ns)
 		if err != nil {
 			logrus.Errorf("%v", err)
 			renderJSONError(w, err, http.StatusInternalServerError)
@@ -199,7 +197,7 @@ func (h *handler) handleAPIEdges() http.Handler {
 		NodeList := buildNodeList(EdgeList, ns)
 
 		for i := range NodeList {
-			NodeList[i].Stats, err = statQuery(ctx, promAPI, NodeList[i].App, NodeList[i].Version, windowDefault, "inbound")
+			NodeList[i].Stats, err = statQuery(ctx, h.promAPI, NodeList[i].App, NodeList[i].Version, windowDefault, "inbound")
 			if err != nil {
 				err = fmt.Errorf("unable to populate node list: %v", err)
 				logrus.Errorf("%v", err)
@@ -294,156 +292,83 @@ func HandleEdges(api v1.API) http.Handler {
 
 }
 
-func processEdgeMetrics(ctx context.Context, promAPI v1.API, inbound, outbound model.Vector, selectedNamespace string) ([]Edge, error) {
-	var edges []Edge
-	dstIndex := map[model.LabelValue]model.Metric{}
-	srcIndex := map[model.LabelValue][]model.Metric{}
-	resourceType := "deployment"
-	resourceReplacementInbound := resourceType
-	resourceReplacementOutbound := "dst_" + resourceType
+func (h *handler) SummaryHandler() http.Handler {
+	return HandleSummary(h.promAPI)
 
-	for _, sample := range inbound {
-		// skip inbound results without a clientID because we cannot construct edge
-		// information
-		clientID, ok := sample.Metric[model.LabelName("client_id")]
-		if ok {
-			dstResource := string(sample.Metric[model.LabelName(resourceReplacementInbound)])
-
-			// format of clientId is id.namespace.serviceaccount.cluster.local
-			clientIDSlice := strings.Split(string(clientID), ".")
-			srcNs := clientIDSlice[1]
-			key := model.LabelValue(fmt.Sprintf("%s.%s", dstResource, srcNs))
-			dstIndex[key] = sample.Metric
-		} else {
-			logrus.Debug("dropped metric: %s", sample.Metric)
-		}
-	}
-
-	for _, sample := range outbound {
-		dstResource := sample.Metric[model.LabelName(resourceReplacementOutbound)]
-		srcNs := sample.Metric[model.LabelName("namespace")]
-
-		key := model.LabelValue(fmt.Sprintf("%s.%s", dstResource, srcNs))
-		if _, ok := srcIndex[key]; !ok {
-			srcIndex[key] = []model.Metric{}
-		}
-		srcIndex[key] = append(srcIndex[key], sample.Metric)
-	}
-
-	for key, sources := range srcIndex {
-		for _, src := range sources {
-			srcNamespace := string(src[model.LabelName("namespace")])
-
-			dst, ok := dstIndex[key]
-
-			// if no destination, don't try
-			if !ok {
-				continue
-			}
-
-			dstNamespace := string(dst[model.LabelName("namespace")])
-
-			// skip if selected namespace is given and neither the source nor
-			// destination is in the selected namespace
-			if selectedNamespace != "" && srcNamespace != selectedNamespace &&
-				dstNamespace != selectedNamespace {
-				continue
-			}
-			//TODO if fromApp would be empty we should also skip it
-
-			edge := Edge{
-				FromNamespace: srcNamespace,
-				FromApp:       string(src[model.LabelName("app")]),
-				FromVersion:   string(src[model.LabelName("version")]),
-				ToNamespace:   dstNamespace,
-				ToApp:         string(dst[model.LabelName("app")]),
-				ToVersion:     string(dst[model.LabelName("version")]),
-			}
-
-			stats, err := statQuery(ctx, promAPI, edge.FromApp, edge.FromVersion, windowDefault, "outbound")
-			if err != nil {
-				return nil, err
-			}
-			edge.Stats = stats
-			edges = append(edges, edge)
-		}
-	}
-
-	return edges, nil
 }
 
-func processAllEdgeMetrics(ctx context.Context, promAPI v1.API, inbound, outbound model.Vector) ([]Edge, error) {
-	var edges []Edge
-	dstIndex := map[model.LabelValue]model.Metric{}
-	srcIndex := map[model.LabelValue][]model.Metric{}
-	resourceType := "deployment"
-	resourceReplacementInbound := resourceType
-	resourceReplacementOutbound := "dst_" + resourceType
+func HandleSummary(api v1.API) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 
-	for _, sample := range inbound {
-		// skip inbound results without a clientID because we cannot construct edge
-		// information
-		clientID, ok := sample.Metric[model.LabelName("client_id")]
-		if ok {
-			dstResource := string(sample.Metric[model.LabelName(resourceReplacementInbound)])
+		promAPI := api
+		ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+		defer cancel()
 
-			// format of clientId is id.namespace.serviceaccount.cluster.local
-			clientIDSlice := strings.Split(string(clientID), ".")
-			srcNs := clientIDSlice[1]
-			key := model.LabelValue(fmt.Sprintf("%s.%s", dstResource, srcNs))
-			dstIndex[key] = sample.Metric
-		} else {
-			logrus.Debug("dropped metric: %s", sample.Metric)
+		incomingResp, warn, err := promAPI.Query(ctx, IncomingIdentityQuery, time.Now())
+
+		if warn != nil {
+			logrus.Warnf("%v", warn)
 		}
-	}
-
-	for _, sample := range outbound {
-		dstResource := sample.Metric[model.LabelName(resourceReplacementOutbound)]
-		srcNs := sample.Metric[model.LabelName("namespace")]
-
-		key := model.LabelValue(fmt.Sprintf("%s.%s", dstResource, srcNs))
-		if _, ok := srcIndex[key]; !ok {
-			srcIndex[key] = []model.Metric{}
+		if err != nil {
+			renderJSONError(w, err, http.StatusInternalServerError)
+			return
 		}
-		srcIndex[key] = append(srcIndex[key], sample.Metric)
-	}
+		outgoingResp, warn, err := promAPI.Query(ctx, OutgoingIdentityQuery, time.Now())
+		if warn != nil {
+			logrus.Warnf("%v", warn)
+		}
+		if err != nil {
+			renderJSONError(w, err, http.StatusInternalServerError)
+			return
+		}
+		logrus.Debugf("incomging resp: %+v", incomingResp)
+		logrus.Debugf("outgoing resp: %+v", outgoingResp)
 
-	for key, sources := range srcIndex {
-		for _, src := range sources {
-			srcNamespace := string(src[model.LabelName("namespace")])
+		if outgoingResp.Type() != model.ValVector {
+			err = fmt.Errorf("Unexpected query result type (expected Vector): %s", outgoingResp.Type())
+			log.Error(err)
+			renderJSONError(w, err, http.StatusInternalServerError)
+			return
+		}
+		if incomingResp.Type() != model.ValVector {
+			err = fmt.Errorf("Unexpected query result type (expected Vector): %s", incomingResp.Type())
+			log.Error(err)
+			renderJSONError(w, err, http.StatusInternalServerError)
+			return
+		}
 
-			dst, ok := dstIndex[key]
+		//TODO use ErrGroup here
+		EdgeList, err := processEdgeMetrics(ctx, promAPI, incomingResp.(model.Vector), outgoingResp.(model.Vector), "")
+		if err != nil {
+			logrus.Errorf("%v", err)
+			renderJSONError(w, err, http.StatusInternalServerError)
+			return
+		}
+		logrus.Infof("%+v", EdgeList)
 
-			// if no destination, don't try
-			if !ok {
-				continue
-			}
+		// create Nodes based upon all seen apps
+		NodeList := buildNodeList(EdgeList, "")
 
-			dstNamespace := string(dst[model.LabelName("namespace")])
-
-			//TODO if fromApp would be empty we should also skip it
-
-			edge := Edge{
-				FromNamespace: srcNamespace,
-				FromApp:       string(src[model.LabelName("app")]),
-				FromVersion:   string(src[model.LabelName("version")]),
-				ToNamespace:   dstNamespace,
-				ToApp:         string(dst[model.LabelName("app")]),
-				ToVersion:     string(dst[model.LabelName("version")]),
-			}
-
-			stats, err := statQuery(ctx, promAPI, edge.FromApp, edge.FromVersion, windowDefault, "outbound")
+		for i := range NodeList {
+			NodeList[i].Stats, err = statQuery(ctx, promAPI, NodeList[i].App, NodeList[i].Version, windowDefault, "inbound")
 			if err != nil {
-				return nil, err
+				err = fmt.Errorf("unable to populate node list: %v", err)
+				logrus.Errorf("%v", err)
+				renderJSONError(w, err, http.StatusInternalServerError)
+				return
 			}
-			edge.Stats = stats
-			edges = append(edges, edge)
 		}
-	}
 
-	return edges, nil
+		resp := EdgeResp{
+			Nodes:     NodeList,
+			Edges:     EdgeList,
+			Integrity: "full",
+		}
+		renderJSON(w, resp)
+	})
 }
 
+// buildNodeList creates a node list from slice of edges, optionally creating a nodelist if targetNamesace is not ""
 func buildNodeList(edgeList []Edge, targetNamespace string) []Node {
 	NodeList := make([]Node, 0, len(edgeList))
 	appSet := make(map[AppVersionNamespace]bool, len(edgeList))
@@ -452,7 +377,7 @@ func buildNodeList(edgeList []Edge, targetNamespace string) []Node {
 
 		// check From node hasn't been seen and is in the right namespace
 		if _, seen := appSet[AppVersionNamespace(edge.FromApp+edge.FromVersion+edge.FromNamespace)]; !seen {
-			if edge.FromNamespace == targetNamespace {
+			if targetNamespace == "" || edge.FromNamespace == targetNamespace {
 				node := Node{App: edge.FromApp, Version: edge.FromVersion, Namespace: edge.FromNamespace}
 				NodeList = append(NodeList, node)
 				appSet[AppVersionNamespace(edge.FromApp+edge.FromVersion+edge.FromNamespace)] = true
@@ -461,7 +386,7 @@ func buildNodeList(edgeList []Edge, targetNamespace string) []Node {
 
 		// check To node hasn't been added and is in the right namespace
 		if _, seen := appSet[AppVersionNamespace(edge.ToApp+edge.ToVersion+edge.ToNamespace)]; !seen {
-			if edge.ToNamespace == targetNamespace {
+			if targetNamespace == "" || edge.ToNamespace == targetNamespace {
 				node := Node{App: edge.ToApp, Version: edge.ToVersion, Namespace: edge.ToNamespace}
 				NodeList = append(NodeList, node)
 				appSet[AppVersionNamespace(edge.ToApp+edge.ToVersion+edge.ToNamespace)] = true
