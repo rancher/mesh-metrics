@@ -96,6 +96,7 @@ func statQuery(ctx context.Context, promAPI v1.API, appName, version, window, di
 	}
 
 	rpsQuery := fmt.Sprintf(RPS, queryLabels, window)
+	logrus.Debugf("Performing rps query: %v", rpsQuery)
 	result, warnings, err := promAPI.Query(ctx, rpsQuery, time.Now())
 	if err != nil {
 		return nil, err
@@ -112,12 +113,18 @@ func statQuery(ctx context.Context, promAPI v1.API, appName, version, window, di
 	} else {
 		resp["rps"] = float64(resultScalar[0].Value)
 	}
+
+	var nonSuccesRateLabels string
 	if version != "" {
 		queryLabels = fmt.Sprintf("{classification=\"success\",direction=\"%s\",app=\"%s\",version=\"%s\"}", direction, appName, version)
+		nonSuccesRateLabels = fmt.Sprintf("{direction=\"%s\",app=\"%s\",version=\"%s\"}", direction, appName, version)
 	} else {
 		queryLabels = fmt.Sprintf("{classification=\"success\",direction=\"%s\",app=\"%s\"}", direction, appName)
+		nonSuccesRateLabels = fmt.Sprintf("{direction=\"%s\",app=\"%s\"}", direction, appName)
 	}
-	successRateQuery := fmt.Sprintf(SUCCESSRATE, queryLabels, window, queryLabels, window)
+
+	successRateQuery := fmt.Sprintf(SUCCESSRATE, queryLabels, window, nonSuccesRateLabels, window)
+	logrus.Debugf("Performing success rate query: %v", successRateQuery)
 	result, warnings, err = promAPI.Query(ctx, successRateQuery, time.Now())
 	if err != nil {
 		return nil, err

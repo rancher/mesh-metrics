@@ -33,7 +33,7 @@ func processEdgeMetrics(ctx context.Context, promAPI v1.API, inbound, outbound m
 			key := model.LabelValue(fmt.Sprintf("%s.%s", dstResource, srcNs))
 			dstIndex[key] = sample.Metric
 		} else {
-			logrus.Debug("dropped metric: %s", sample.Metric)
+			logrus.Debugf("dropped metric: %s", sample.Metric)
 		}
 	}
 
