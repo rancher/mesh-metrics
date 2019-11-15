@@ -148,7 +148,7 @@ func (h *handler) handleAPIEdges() http.Handler {
 		vars := mux.Vars(req)
 		ns, ok := vars["namespace"]
 		if !ok {
-			ns = "default"
+			ns = ""
 		}
 
 		ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
