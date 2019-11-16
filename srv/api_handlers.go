@@ -219,6 +219,10 @@ func HandleEdges(api v1.API) http.Handler {
 			Edges:     EdgeList,
 			Integrity: "full",
 		}
+		err = checkNan(resp)
+		if err != nil {
+			renderJSONError(w, err, http.StatusInternalServerError)
+		}
 		renderJSON(w, resp)
 	})
 
