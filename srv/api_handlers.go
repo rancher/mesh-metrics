@@ -144,75 +144,7 @@ type Edge struct {
 }
 
 func (h *handler) handleAPIEdges() http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
-		vars := mux.Vars(req)
-		ns, ok := vars["namespace"]
-		if !ok {
-			ns = ""
-		}
-
-		ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
-		defer cancel()
-
-		incomingResp, warn, err := h.promAPI.Query(ctx, IncomingIdentityQuery, time.Now())
-
-		if warn != nil {
-			logrus.Warnf("%v", warn)
-		}
-		if err != nil {
-			renderJSONError(w, err, http.StatusInternalServerError)
-			return
-		}
-		outgoingResp, warn, err := h.promAPI.Query(ctx, OutgoingIdentityQuery, time.Now())
-		if warn != nil {
-			logrus.Warnf("%v", warn)
-		}
-		if err != nil {
-			renderJSONError(w, err, http.StatusInternalServerError)
-			return
-		}
-		logrus.Debugf("incomging resp: %+v", incomingResp)
-		logrus.Debugf("outgoing resp: %+v", outgoingResp)
-
-		if outgoingResp.Type() != model.ValVector {
-			err = fmt.Errorf("Unexpected query result type (expected Vector): %s", outgoingResp.Type())
-			log.Error(err)
-			panic(err)
-		}
-		if incomingResp.Type() != model.ValVector {
-			err = fmt.Errorf("Unexpected query result type (expected Vector): %s", incomingResp.Type())
-			log.Error(err)
-			panic(err)
-		}
-		//TODO use ErrGroup here
-		EdgeList, err := processEdgeMetrics(ctx, h.promAPI, incomingResp.(model.Vector), outgoingResp.(model.Vector), ns)
-		if err != nil {
-			logrus.Errorf("%v", err)
-			renderJSONError(w, err, http.StatusInternalServerError)
-			return
-		}
-		logrus.Infof("%+v", EdgeList)
-
-		// create Nodes based upon all seen apps
-		NodeList := buildNodeList(EdgeList, ns)
-
-		for i := range NodeList {
-			NodeList[i].Stats, err = statQuery(ctx, h.promAPI, NodeList[i].App, NodeList[i].Version, windowDefault, "inbound")
-			if err != nil {
-				err = fmt.Errorf("unable to populate node list: %v", err)
-				logrus.Errorf("%v", err)
-				renderJSONError(w, err, http.StatusInternalServerError)
-				return
-			}
-		}
-
-		resp := EdgeResp{
-			Nodes:     NodeList,
-			Edges:     EdgeList,
-			Integrity: "full",
-		}
-		renderJSON(w, resp)
-	})
+	return HandleEdges(h.promAPI)
 
 }
 
@@ -221,7 +153,7 @@ func HandleEdges(api v1.API) http.Handler {
 		vars := mux.Vars(req)
 		ns, ok := vars["namespace"]
 		if !ok {
-			ns = "default"
+			ns = ""
 		}
 
 		promAPI := api
@@ -286,6 +218,10 @@ func HandleEdges(api v1.API) http.Handler {
 			Nodes:     NodeList,
 			Edges:     EdgeList,
 			Integrity: "full",
+		}
+		err = checkNan(resp)
+		if err != nil {
+			renderJSONError(w, err, http.StatusInternalServerError)
 		}
 		renderJSON(w, resp)
 	})
