@@ -127,20 +127,22 @@ type EdgeResp struct {
 type AppVersionNamespace string
 
 type Node struct {
-	App       string             `json:"app"`
-	Version   string             `json:"version"`
-	Namespace string             `json:"namespace"`
-	Stats     map[string]float64 `json:"stats"`
+	App       string `json:"app"`
+	Version   string `json:"version"`
+	Namespace string `json:"namespace"`
+	// use float64 to avoid custom types unmarshalling from prometheus
+	Stats map[string]float64 `json:"stats"`
 }
 
 type Edge struct {
-	FromNamespace string             `json:"fromNamespace"`
-	FromApp       string             `json:"fromApp"`
-	FromVersion   string             `json:"fromVersion"`
-	ToNamespace   string             `json:"toNamespace"`
-	ToApp         string             `json:"toApp"`
-	ToVersion     string             `json:"toVersion"`
-	Stats         map[string]float64 `json:"stats"`
+	FromNamespace string `json:"fromNamespace"`
+	FromApp       string `json:"fromApp"`
+	FromVersion   string `json:"fromVersion"`
+	ToNamespace   string `json:"toNamespace"`
+	ToApp         string `json:"toApp"`
+	ToVersion     string `json:"toVersion"`
+	// use float64 to avoid custom types unmarshalling from prometheus
+	Stats map[string]float64 `json:"stats"`
 }
 
 func (h *handler) handleAPIEdges() http.Handler {
@@ -219,7 +221,7 @@ func HandleEdges(api v1.API) http.Handler {
 			Edges:     EdgeList,
 			Integrity: "full",
 		}
-		err = checkNan(resp)
+		err = checkNanBlock(resp)
 		if err != nil {
 			renderJSONError(w, err, http.StatusInternalServerError)
 		}
@@ -239,6 +241,10 @@ func HandleSummary(api v1.API) http.Handler {
 		promAPI := api
 		ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 		defer cancel()
+
+		ch := make(chan StatResp, 2)
+		go asyncStatQuery(ctx, promAPI, directionInbound, windowDefault, ch)
+		go asyncStatQuery(ctx, promAPI, directionOutbound, windowDefault, ch)
 
 		incomingResp, warn, err := promAPI.Query(ctx, IncomingIdentityQuery, time.Now())
 
@@ -274,37 +280,55 @@ func HandleSummary(api v1.API) http.Handler {
 		}
 
 		//TODO use ErrGroup here
-		EdgeList, err := processEdgeMetrics(ctx, promAPI, incomingResp.(model.Vector), outgoingResp.(model.Vector), "")
+		EdgeList, err := asyncProcessEdges(ctx, promAPI, incomingResp.(model.Vector), outgoingResp.(model.Vector), "")
 		if err != nil {
 			logrus.Errorf("%v", err)
 			renderJSONError(w, err, http.StatusInternalServerError)
 			return
 		}
-		logrus.Infof("%+v", EdgeList)
+		logrus.Debugf("%+v", EdgeList)
 
 		// create Nodes based upon all seen apps
 		NodeList := buildNodeList(EdgeList, "")
 
-		for i := range NodeList {
-			NodeList[i].Stats, err = statQuery(ctx, promAPI, NodeList[i].App, NodeList[i].Version, windowDefault, "inbound")
-			if err != nil {
-				err = fmt.Errorf("unable to populate node list: %v", err)
-				logrus.Errorf("%v", err)
-				renderJSONError(w, err, http.StatusInternalServerError)
-				return
-			}
-		}
-
+		// no stats have been inserted yet
 		resp := EdgeResp{
 			Nodes:     NodeList,
 			Edges:     EdgeList,
-			Integrity: "full",
+			Integrity: "partial",
 		}
+		var nodes []Node
+		var edges []Edge
+		for i := 0; i < 2; i++ {
+			statResp := <-ch
+			if statResp.err != nil {
+				//TODO provide support for partial queries w/o stats
+				renderJSONError(w, statResp.err, http.StatusInternalServerError)
+				return
+			}
+			if statResp.direction == directionInbound {
+				nodes, err = processInboundStats(resp.Nodes, statResp.result)
+				if err != nil {
+					renderJSONError(w, err, http.StatusInternalServerError)
+					return
+				}
+			}
+			if statResp.direction == directionOutbound {
+				edges, err = processOutboundStats(resp.Edges, statResp.result)
+				if err != nil {
+					renderJSONError(w, err, http.StatusInternalServerError)
+					return
+				}
+			}
+		}
+
+		resp = EdgeResp{Nodes: nodes, Edges: edges, Integrity: "full"}
 		renderJSON(w, resp)
 	})
 }
 
-// buildNodeList creates a node list from slice of edges, optionally creating a nodelist if targetNamesace is not ""
+// buildNodeList creates a node list from slice of edges, optionally creating a nodelist from a single namespace
+// if targetNamesace is not ""
 func buildNodeList(edgeList []Edge, targetNamespace string) []Node {
 	NodeList := make([]Node, 0, len(edgeList))
 	appSet := make(map[AppVersionNamespace]bool, len(edgeList))

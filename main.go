@@ -16,7 +16,7 @@ import (
 )
 
 // TODO Don't hardcode this
-const version = "v0.1.0"
+const version = "v0.0.1"
 
 func main() {
 
@@ -33,7 +33,7 @@ func main() {
 	if *debug {
 		logrus.SetLevel(logrus.DebugLevel)
 	}
-	// TODO Sanity check we can connect here and verify promtheus server has correct config
+	// TODO Sanity check we can connect here and verify prometheus server has correct config
 
 	client, err := api.NewClient(api.Config{
 		Address: *apiAddr,
