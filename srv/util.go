@@ -7,7 +7,7 @@ import (
 
 // TODO: check earlier in the code if we find a NaN
 // 	so that we debug the query
-func checkNan(block EdgeResp) error {
+func checkNanBlock(block EdgeResp) error {
 
 	for _, node := range block.Nodes {
 		for key, value := range node.Stats {

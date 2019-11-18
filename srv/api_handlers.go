@@ -221,7 +221,7 @@ func HandleEdges(api v1.API) http.Handler {
 			Edges:     EdgeList,
 			Integrity: "full",
 		}
-		err = checkNan(resp)
+		err = checkNanBlock(resp)
 		if err != nil {
 			renderJSONError(w, err, http.StatusInternalServerError)
 		}

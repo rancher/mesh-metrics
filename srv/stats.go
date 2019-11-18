@@ -3,7 +3,7 @@ package srv
 import (
 	"context"
 	"fmt"
-	"sync"
+	"math"
 	"time"
 
 	v1 "github.com/prometheus/client_golang/api/prometheus/v1"
@@ -310,12 +310,8 @@ func getMetrics(app, version string, stats map[string]model.Vector) map[string]f
 	metrics := [5]string{"p50ms", "p90ms", "p99ms", rps, successRate}
 
 	result := map[string]float64{}
-	//var wg sync.WaitGroup
-	sema := sync.Mutex{}
 	for _, metric := range metrics {
 		samples := stats[metric]
-		//wg.Add(1)
-		//go func(samples model.Vector, metric string, sema *sync.Mutex, wg *sync.WaitGroup) {
 		for _, sample := range samples {
 			appVar, ok := sample.Metric["app"]
 			if !ok || string(appVar) != app {
@@ -326,14 +322,14 @@ func getMetrics(app, version string, stats map[string]model.Vector) map[string]f
 				continue
 			}
 			logrus.Debugf("found %s for app: %s version: %s", metric, app, version)
-			sema.Lock()
+			if math.IsNaN(float64(sample.Value)) {
+				logrus.Infof("Found NaN value for metric: %s, with app %s & version: %s", metric, app, version)
+				result[metric] = 0.0
+				break
+			}
 			result[metric] = float64(sample.Value)
-			sema.Unlock()
-			//wg.Done()
 		}
-		//}(samples, metric, &sema, &wg)
 
 	}
-	//wg.Wait()
 	return result
 }
