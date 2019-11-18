@@ -291,16 +291,6 @@ func HandleSummary(api v1.API) http.Handler {
 		// create Nodes based upon all seen apps
 		NodeList := buildNodeList(EdgeList, "")
 
-		//for i := range NodeList {
-		//	NodeList[i].Stats, err = statQuery(ctx, promAPI, NodeList[i].App, NodeList[i].Version, windowDefault, "inbound")
-		//	if err != nil {
-		//		err = fmt.Errorf("unable to populate node list: %v", err)
-		//		logrus.Errorf("%v", err)
-		//		renderJSONError(w, err, http.StatusInternalServerError)
-		//		return
-		//	}
-		//}
-
 		// no stats have been inserted yet
 		resp := EdgeResp{
 			Nodes:     NodeList,

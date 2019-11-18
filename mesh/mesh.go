@@ -32,5 +32,5 @@ type edgesMetrics struct {
 }
 
 func (e edgesMetrics) SummaryHandler() http.Handler {
-	return srv.HandleEdges(e.API)
+	return srv.HandleSummary(e.API)
 }
