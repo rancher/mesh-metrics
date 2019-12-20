@@ -329,7 +329,9 @@ func getMetrics(app, version string, stats map[string]model.Vector) map[string]f
 			}
 			result[metric] = float64(sample.Value)
 		}
-
+		if _, ok := result[metric]; !ok {
+			result[metric] = 0.0
+		}
 	}
 	return result
 }
